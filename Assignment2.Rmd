@@ -1,0 +1,128 @@
+---
+title: "Assignment2"
+author: "Julie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Installing packages
+
+```{r data}
+install.packages('dslabs')
+install.packages('car')
+```
+
+
+```{r}
+library(dslabs)
+library(car)
+```
+
+# Part 1
+
+## Loading data
+
+```{r}
+data('divorce_margarine')
+d <- divorce_margarine
+str(d)
+```
+## Inspecting correlation between margarine consumption and divorce rates
+
+```{r}
+# Inspecting the data as plot
+ggplot(d,
+       aes(margarine_consumption_per_capita, divorce_rate_maine)) +
+  geom_point()
+```
+It looks like there is a positive relationship between the two.
+
+```{r}
+# Running a correlation
+cor.test(d$margarine_consumption_per_capita, d$divorce_rate_maine)
+```
+Looking at the correlation results, it appears that there is a pretty strong positive correlation between the two variables.
+
+```{r}
+# Fitting a model
+summary(lm(divorce_rate_maine ~ margarine_consumption_per_capita, d))
+```
+Inspecting the model summary, margarine consumption has a significant positive effect on divorce rate. The effect size appears to be that when margarine consumption is increased with 1 unit, the divorce rate increases with .2 unit. 
+
+
+# Part 2
+
+## Loading data
+
+```{r}
+data(GSSvocab)
+d2 <- GSSvocab
+str(d2)
+```
+
+## Filtering data
+
+```{r}
+d2 <- d2 %>%
+  filter(year == '1978') %>%
+  na.omit(d2)
+```
+
+## Inspecting the relationship between vocab and education
+
+```{r}
+# Visually inspecting with plot
+ggplot(d2,
+       aes(educ, vocab)) +
+  geom_point(position = 'jitter')
+```
+Looking at the plot, it appears that there is a positive relationship between the two variables.
+
+```{r}
+# Fitting a model
+summary(lm(vocab ~ educ, d2))
+```
+Inspecting the model summary, it appears that education significantly affects vocabulary (P < 0.001), with an effect size of .39 increase in vocab for every 1 increase in education.
+
+## Adding nativeBorn as predictor
+
+```{r}
+# Visualizing the relationship between nativeBorn and vocab
+ggplot(d2,
+       aes(educ, vocab, col = nativeBorn)) +
+  geom_point(position = 'jitter')
+
+# Fitting a model
+summary(lm(vocab ~ educ + nativeBorn, d2))
+```
+Visually inspecting the relationship, there is no clear effect of nativeBorn on vocabulary, but after fitting the model, it appears that apart from education, being a native English speaker also significantly affects a person's vocabulary (P < .01).
+
+## Inspecting the relationship between education and nativeBorn
+
+```{r}
+ggplot(d2,
+       aes(nativeBorn, educ)) +
+  geom_point(position = 'jitter')
+
+# Fitting a model on education
+summary(lm(educ ~ nativeBorn, d2))
+
+# Fitting an interaction model on vocab
+summary(lm(vocab ~ educ * nativeBorn, d2))
+```
+Inspecting the relationship between nativeBorn and education level indicates, that there is no significant effect. In other words, a person's status as native english speaker does not affect their level of education. Based on this, it does not make sense to add an interaction term between education level and nativeBorn when predicting vocabulary. Doing it anyways, reveals that now only education significantly impacts a person's vocabulary (P<0.001), while nativeBorn does not (P>.05).
+
+## Comparing models
+
+```{r}
+m1 <- lm(vocab ~ educ, d2)
+m2 <- lm(vocab ~ educ + nativeBorn, d2)
+m3 <- lm(vocab ~ educ * nativeBorn, d2)
+
+anova(m1, m2, m3)
+```
+Inspecting the anova results, it appears that there is a significant difference between m1 and m2, but not between m2 and m3. This indicates that adding nativeBorn as a predictor significantly improves the model fit, however adding an interaction between them does not. In other words, a person's vocabulary is affected by their education level and status as native english speaker, but being native english speaker does not impact their education level. Overall, m2 appears to be the best model.
