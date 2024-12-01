@@ -1,0 +1,248 @@
+---
+title: "Portfolio 3"
+author: "Julie Bang Mikkelsen (AU718507)"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preprocessing
+
+## Loading required packages
+
+```{r libraries, warning = FALSE, message = FALSE}
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(ggspatial)
+library(sf)
+library(raster)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+```
+
+## Loading data
+
+I want to investigate whether suicide terrorism committed by female terrorists is more lethal than male terrorists. To do that I use the GTD dataset.
+
+```{r data}
+raw_data <- read.csv("globalterrorismdb_0522dist.csv", sep = ";", dec = ",")
+#str(raw_data)
+```
+
+## Filtering and cleaning data
+
+I filter the data for only suicide attacks, code a gender variable from the summaries, and create my own outcome variables. This gives me three different measures of lethality: 'nkill', 'nkillwound', and 'lethality' (ratio).
+
+```{r}
+female_keywords <- c("female", "woman", "women", "girl", "girls") # preparing list of keywords to identify female terrorists by
+
+d <- raw_data %>% # saving into new df
+  filter(suicide == 1) %>% # filtering for suicide attacks
+  mutate(female = ifelse(str_detect(tolower(summary), paste(female_keywords, collapse = "|")), 1, 0)) # creating gender variable
+
+d$female <- as.factor(d$female) # converting to factor for better plots
+d$region_txt <- as.factor(d$region_txt)
+
+d$nkillwound <- (d$nkill+d$nwound) # creating outcome variable 'nkillwound' as total casualties
+d$lethality <- d$nkill/(d$nkillwound) # creating outcome variable 'lethality' as ratio killed of total casualities
+```
+
+# Analysis
+
+## Visually inspecting overall data
+
+```{r}
+# Bar plot
+ggplot(d, aes(x = iyear, fill = female)) +
+  geom_bar() +
+  labs(
+    x = "Year",
+    y = "Number of Attacks",
+    fill = "Gender",
+    title = "Histogram of Yearly Attacks") +
+  scale_fill_manual(
+    values = c("0" = "#e66101", "1" = "#5e3c99"), 
+    labels = c("Male/Unclassified", "Female")) +
+  theme_minimal()
+
+# Map
+d_clean <- d %>%
+  filter(!is.na(longitude) & !is.na(latitude)) # Remove rows with NA in coordinates
+
+d_map <- st_as_sf( # Converting clean df to sf object
+  d_clean,
+  coords = c("longitude", "latitude"),
+  crs = 4326) # choosing EPSG:4326 as coordinate system
+
+world <- ne_countries(scale = "medium", returnclass = "sf") # loading world map from naturalearth as sf object
+
+ggplot() +
+  geom_sf(data = world, fill = "gray90", color = "white") +
+  geom_sf(data = d_map, aes(size = nkill, color = female)) +
+  labs(
+    title = "Geographical Attack Distribution by Gender",
+    color = "Gender",
+    size = "Casualties") +
+  ggspatial::annotation_north_arrow(location = "br") +
+  scale_color_manual(
+    values = c("0" = "#e66101", "1" = "#5e3c99"),
+    labels = c("Male/Unclassified", "Female")) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "horizontal")
+```
+
+Visually inspecting the data, it appears highly unbalanced. Recent years, male perpetrators, and certain geographical regions are over-represented.
+
+## Visually inspecting for potential predictors of lethality
+
+```{r}
+# Box plot of gender
+ggplot(d, aes(x = female, y = lethality, fill = female)) +
+  geom_boxplot() +
+  labs(
+    x = NULL,
+    y = "Lethality",
+    title = "Boxplot of Lethality by Gender") +
+  scale_fill_manual(
+    values = c("0" = "#e66101", "1" = "#5e3c99"), 
+    labels = c("Male/Unclassified", "Female")) +
+  scale_x_discrete(labels = c("0" = "Male/Unclassified", "1" = "Female")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Scatter plot of year
+ggplot(d, aes(iyear, lethality, col = female)) +
+  geom_point(position = position_jitter(width = 0.2, height = 0), alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(
+    title = "Scatter plot of Lethality Over Time by Gender",
+    x = "Year",
+    y = "Lethality",
+    color = "Gender") +
+  scale_color_manual(
+    values = c("0" = "#e66101", "1" = "#5e3c99"),
+    labels = c("Male/Unclassified", "Female")) +
+    theme_minimal()
+```
+
+Inspecting 'gender' alone, there is no visual difference in 'lethality.' However, when also introducing 'year',  the scatter plot indicates that there could be a gender effect.
+
+## Correlation testing for year-lethality relationship
+
+```{r}
+cor.test(d$iyear, d$lethality) # Running a correlation on year and lethality
+```
+
+Judging from the correlation results, there is a weak but significant (p < .001) correlation between year and lethality.
+
+## t-test for testing gender-lethality relationship (unequal mean lethality between genders)
+
+```{r}
+t.test(nkill ~ female, data = d, var.equal = FALSE) # using Welch's t-test because of unequal variances
+t.test(nkillwound ~ female, data = d, var.equal = FALSE)
+t.test(lethality ~ female, data = d, var.equal = FALSE)
+```
+
+Neither of the lethality measures turned out to have significant different means between gender groups. Also, as I'm doing multiple t-tests, the threshold should actually be corrected for multiple comparisons anyways. This confirms my suspicion from the boxplot, that gender alone does not predict lethality.
+
+## Fitting linear models with year, gender, and geographical region as predictors
+
+```{r}
+# transforming year variable to be zero-indexed for interpretability
+d <- d %>%
+  mutate(iyear_adj = iyear - 1970)
+
+# Fitting models with increasing complexity
+m1 <- lm(lethality ~ female, d)
+
+m2 <- lm(lethality ~ female + region_txt, d)
+m3 <- lm(lethality ~ female * region_txt, d)
+
+m4 <- lm(lethality ~ iyear_adj + female, d)
+m5 <- lm(lethality ~ iyear_adj + female + region_txt, d)
+m6 <- lm(lethality ~ iyear_adj + female * region_txt, d)
+
+# Comparing models
+anova(m1, m2, m3, m4, m5, m6)
+AIC(m1, m2, m3, m4, m5, m6)
+```
+
+Comparing the models, the most complex model appears to be the best. m6 is significantly better than the null model, and results in the lowest amount of error and also the lowest AIC-value.
+
+## Inspecting model fit
+
+Baseline indicates male (female = 0), year = 1970, and region = Australasia & Oceania.
+
+```{r}
+summary(m6)
+```
+
+Inspecting the model summary, increasing year and female perpetrators significantly increase attack lethality (p < .001, and p < .01, respectively) compared to the baseline. The effect sizes appear to be .01 increase in lethality for every additional year, and .07 increase in lethality for being female. Furthermore, there is a negative interaction effect of certain geographical regions (Middle East & North Africa; and South Asia) on gender. This indicates that the effect of gender on lethality varies depending on where the attack takes place. Interestingly, even though female perpetrators. However, the model has a very low R-squared value, indicating that the model only explains a fraction of the variance in data. In other words, attack lethality depends more on other factors than the ones investigated here.
+
+## Visually presenting interaction effect of geopraphical region
+
+```{r}
+# manually creating df with interaction effects from m6
+region_interaction <- data.frame(
+  region = c("Central Asia", "East Asia", "Eastern Europe", 
+             "Middle East & North Africa", "North America", 
+             "South America", "South Asia", "Southeast Asia", 
+             "Sub-Saharan Africa", "Western Europe"),
+  p_value = c(0.27198, NA, 0.75922, 1.07e-06, 0.76285, 
+              NA, 0.02596, 0.08764, NA, NA))
+
+# making col with significant/not significant (alfa = .05)
+region_interaction$significance <- ifelse(
+  region_interaction$p_value < 0.05, "Significant", "Not Significant")
+region_interaction$significance[is.na(region_interaction$p_value)] <- "Not Applicable" # primarily regions with too few entries
+
+# preparing translation-table for regions before merging
+region_mapping <- c(
+  "Central Asia" = "Europe & Central Asia",
+  "East Asia" = "East Asia & Pacific",
+  "Eastern Europe" = "Europe & Central Asia",
+  "Middle East & North Africa" = "Middle East & North Africa",
+  "North America" = "North America",
+  "South America" = "Latin America & Caribbean",
+  "South Asia" = "South Asia",
+  "Southeast Asia" = "East Asia & Pacific",
+  "Sub-Saharan Africa" = "Sub-Saharan Africa",
+  "Western Europe" = "Europe & Central Asia")
+
+# applying translation-table to interaction output df
+region_interaction$region_wb <- region_mapping[region_interaction$region]
+
+# merging interaction output df with world df
+world_with_significance <- world %>%
+  left_join(region_interaction, by = c("region_wb" = "region_wb")) # defining to merge where this variable contains the same value
+
+# replacing NAs with "Not Applicable" in significance col
+world_with_significance$significance <- replace_na(world_with_significance$significance, "Not Applicable")
+
+# Map
+ggplot() +
+  geom_sf(data = world_with_significance, aes(fill = significance), color = "white") +
+  labs(
+    fill = "Interaction Effect",
+    title = "Gender:Region Interaction Map") +
+  scale_fill_manual(
+    values = c("Significant" = "#fdb863", "Not Significant" = "#8073ac", "Not Applicable" = "gray"),
+    na.translate = FALSE) +
+  ggspatial::annotation_north_arrow(location = "br") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.box = "horizontal")
+```
+
+
