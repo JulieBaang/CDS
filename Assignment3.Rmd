@@ -1,14 +1,14 @@
 ---
-title: "Portfolio 3"
+title: "Assignment 3"
 author: "Julie Bang Mikkelsen (AU718507)"
-date: "`r Sys.Date()`"
+date: "January 7th 2025"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 ```
 
 # Preprocessing
@@ -39,7 +39,7 @@ raw_data <- read.csv("globalterrorismdb_0522dist.csv", sep = ";", dec = ",")
 
 ## Filtering and cleaning data
 
-I filter the data for only suicide attacks, code a gender variable from the summaries, and create my own outcome variables. This gives me three different measures of lethality: 'nkill', 'nkillwound', and 'lethality' (ratio).
+I filter the data for only suicide attacks, code a gender variable from the summaries, and standardize the outcome variable.
 
 ```{r}
 female_keywords <- c("female", "woman", "women", "girl", "girls") # preparing list of keywords to identify female terrorists by
@@ -51,7 +51,7 @@ d <- raw_data %>% # saving into new df
 d$female <- as.factor(d$female) # converting to factor for better plots
 d$region_txt <- as.factor(d$region_txt)
 
-d$nkillwound <- (d$nkill+d$nwound) # creating outcome variable 'nkillwound' as total casualties
+d$nkillwound <- (d$nkill+d$nwound) # 'nkillwound' as total casualties
 d$lethality <- d$nkill/(d$nkillwound) # creating outcome variable 'lethality' as ratio killed of total casualities
 ```
 
@@ -60,6 +60,9 @@ d$lethality <- d$nkill/(d$nkillwound) # creating outcome variable 'lethality' as
 ## Visually inspecting overall data
 
 ```{r}
+# Histogram of lethality
+hist(d$lethality)
+
 # Bar plot
 ggplot(d, aes(x = iyear, fill = female)) +
   geom_bar() +
@@ -67,7 +70,7 @@ ggplot(d, aes(x = iyear, fill = female)) +
     x = "Year",
     y = "Number of Attacks",
     fill = "Gender",
-    title = "Histogram of Yearly Attacks") +
+    title = "Bar plot of Yearly Attacks") +
   scale_fill_manual(
     values = c("0" = "#e66101", "1" = "#5e3c99"), 
     labels = c("Male/Unclassified", "Female")) +
@@ -85,7 +88,7 @@ d_map <- st_as_sf( # Converting clean df to sf object
 world <- ne_countries(scale = "medium", returnclass = "sf") # loading world map from naturalearth as sf object
 
 ggplot() +
-  geom_sf(data = world, fill = "gray90", color = "white") +
+  geom_sf(data = world, fill = "gray", color = "white") +
   geom_sf(data = d_map, aes(size = nkill, color = female)) +
   labs(
     title = "Geographical Attack Distribution by Gender",
@@ -101,11 +104,11 @@ ggplot() +
     legend.box = "horizontal")
 ```
 
-Visually inspecting the data, it appears highly unbalanced. Recent years, male perpetrators, and certain geographical regions are over-represented.
+Visually inspecting the data, it appears highly imbalanced. Lethality is not normally distributed, and recent years, male perpetrators, and certain geographical regions are over-represented.
 
 ## Visually inspecting for potential predictors of lethality
 
-```{r}
+```{r, fig.height=3.5, fig.width=6}
 # Box plot of gender
 ggplot(d, aes(x = female, y = lethality, fill = female)) +
   geom_boxplot() +
@@ -135,25 +138,15 @@ ggplot(d, aes(iyear, lethality, col = female)) +
     theme_minimal()
 ```
 
-Inspecting 'gender' alone, there is no visual difference in 'lethality.' However, when also introducing 'year',  the scatter plot indicates that there could be a gender effect.
+Inspecting 'gender' alone, there is no visual difference in 'lethality.' However, when also introducing 'year', the scatter plot indicates that there could be a gender effect.
 
 ## Correlation testing for year-lethality relationship
 
 ```{r}
-cor.test(d$iyear, d$lethality) # Running a correlation on year and lethality
+cor.test(d$iyear, d$lethality, method = "spearman") # Running a correlation on year and lethality
 ```
 
-Judging from the correlation results, there is a weak but significant (p < .001) correlation between year and lethality.
-
-## t-test for testing gender-lethality relationship (unequal mean lethality between genders)
-
-```{r}
-t.test(nkill ~ female, data = d, var.equal = FALSE) # using Welch's t-test because of unequal variances
-t.test(nkillwound ~ female, data = d, var.equal = FALSE)
-t.test(lethality ~ female, data = d, var.equal = FALSE)
-```
-
-Neither of the lethality measures turned out to have significant different means between gender groups. Also, as I'm doing multiple t-tests, the threshold should actually be corrected for multiple comparisons anyways. This confirms my suspicion from the boxplot, that gender alone does not predict lethality.
+Judging from the correlation results, there is a weak but significant (p \< .001) correlation between year and lethality.
 
 ## Fitting linear models with year, gender, and geographical region as predictors
 
@@ -181,13 +174,14 @@ Comparing the models, the most complex model appears to be the best. m6 is signi
 
 ## Inspecting model fit
 
-Baseline indicates male (female = 0), year = 1970, and region = Australasia & Oceania.
+Baseline indicates male (female = 0) and year = 1970.
 
 ```{r}
-summary(m6)
+summary(m1) # inspecting significance of gender alone
+summary(m6) # inspecting best model
 ```
 
-Inspecting the model summary, increasing year and female perpetrators significantly increase attack lethality (p < .001, and p < .01, respectively) compared to the baseline. The effect sizes appear to be .01 increase in lethality for every additional year, and .07 increase in lethality for being female. Furthermore, there is a negative interaction effect of certain geographical regions (Middle East & North Africa; and South Asia) on gender. This indicates that the effect of gender on lethality varies depending on where the attack takes place. Interestingly, even though female perpetrators. However, the model has a very low R-squared value, indicating that the model only explains a fraction of the variance in data. In other words, attack lethality depends more on other factors than the ones investigated here.
+Inspecting the model summary, increasing year and female perpetrators significantly increase attack lethality (p \< .001, and p \< .01, respectively) compared to the baseline.
 
 ## Visually presenting interaction effect of geopraphical region
 
@@ -244,5 +238,3 @@ ggplot() +
     legend.position = "bottom",
     legend.box = "horizontal")
 ```
-
-
